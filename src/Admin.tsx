@@ -34,7 +34,6 @@ export default function Admin({ onExit }: { onExit: () => void }) {
       .then(() => setAuthed(true))
       .catch(() => sessionStorage.removeItem(PW_KEY))
       .finally(() => setChecking(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const logout = useCallback(() => {
@@ -44,7 +43,7 @@ export default function Admin({ onExit }: { onExit: () => void }) {
   }, []);
 
   if (checking) return <div className="admin-shell center">Verificando…</div>;
-  if (!authed)
+  if (!authed) {
     return (
       <Login
         onExit={onExit}
@@ -55,10 +54,11 @@ export default function Admin({ onExit }: { onExit: () => void }) {
         }}
       />
     );
+  }
 
   return (
     <div className="admin-shell">
-      <header className="admin-top">
+      <div className="admin-top">
         <div className="brand">
           <img src={LOGO_URL} alt="" width={44} height={42} />
           <div>
@@ -66,14 +66,14 @@ export default function Admin({ onExit }: { onExit: () => void }) {
             <small>Pedidos y ganancias</small>
           </div>
         </div>
-        <nav className="seg">
+        <div className="seg">
           <button className={view === "cola" ? "on" : ""} onClick={() => setView("cola")}>
             Cola en vivo
           </button>
           <button className={view === "calendario" ? "on" : ""} onClick={() => setView("calendario")}>
             Calendario y reporte
           </button>
-        </nav>
+        </div>
         <div className="admin-actions">
           <button className="ghost" onClick={onExit}>
             Ver carta
@@ -82,7 +82,7 @@ export default function Admin({ onExit }: { onExit: () => void }) {
             Salir
           </button>
         </div>
-      </header>
+      </div>
       <div hidden={view !== "cola"}>
         <Queue pw={pw} onAuthError={logout} />
       </div>
@@ -95,6 +95,7 @@ function Login({ onOk, onExit }: { onOk: (pw: string) => void; onExit: () => voi
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     unlockAudio();
@@ -109,6 +110,7 @@ function Login({ onOk, onExit }: { onOk: (pw: string) => void; onExit: () => voi
       setBusy(false);
     }
   };
+
   return (
     <div className="admin-shell center">
       <form className="login" onSubmit={submit}>
@@ -199,7 +201,7 @@ function Queue({ pw, onAuthError }: { pw: string; onAuthError: () => void }) {
   const todayTotal = delivered.reduce((s, o) => s + o.totalCents, 0);
 
   return (
-    <section className="admin-body">
+    <div className="admin-body">
       <div className="queue-bar">
         <div className="stat">
           <small>En cola</small>
@@ -289,3 +291,4 @@ function Queue({ pw, onAuthError }: { pw: string; onAuthError: () => void }) {
           style={{ zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <div
+            onClick={(e) => e.stopPropagation()}
