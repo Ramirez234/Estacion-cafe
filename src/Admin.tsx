@@ -292,3 +292,294 @@ function Queue({ pw, onAuthError }: { pw: string; onAuthError: () => void }) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
+                        style={{ background: "#fff", padding: "1rem", borderRadius: "14px", maxWidth: "90vw", textAlign: "center" }}
+          >
+            <h3 style={{ marginTop: 0 }}>Comprobante de pago</h3>
+            <img
+              src={previewProof}
+              alt="Captura de pago del cliente"
+              style={{ maxWidth: "100%", maxHeight: "75vh", borderRadius: "10px", display: "block", margin: "0 auto" }}
+            />
+            <button type="button" className="primary wide" style={{ marginTop: "0.75rem" }} onClick={() => setPreviewProof(null)}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrderCard({
+  order,
+  fresh,
+  onViewProof,
+  children,
+}: {
+  order: Order;
+  fresh?: boolean;
+  onViewProof?: (img: string) => void;
+  children?: ReactNode;
+}) {
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000));
+  const { products, delivery } = parseOrder(order);
+
+  return (
+    <div className={fresh ? "order fresh" : "order"}>
+      <div className="order-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+        <div>
+          <span className="num">#{order.id}</span>
+          <h3>{order.customerName}</h3>
+        </div>
+        <div className="meta">
+          <span className={"pm " + order.paymentMethod}>{order.paymentMethod}</span>
+          <small>
+            {timeOf(order.createdAt)} · hace {mins} min
+          </small>
+        </div>
+      </div>
+
+      {(delivery.phone || delivery.address) && (
+        <div
+          style={{
+            background: "#faf6f2",
+            padding: "0.65rem 0.8rem",
+            borderRadius: "10px",
+            marginBottom: "0.65rem",
+            fontSize: "0.88rem",
+            lineHeight: 1.4,
+          }}
+        >
+          {delivery.phone && (
+            <div>
+              <b>📱 Celular:</b> {delivery.phone}
+            </div>
+          )}
+          {delivery.address && (
+            <div>
+              <b>📍 Dirección:</b> {delivery.address}
+            </div>
+          )}
+          {delivery.reference && (
+            <div>
+              <b>Ref:</b> {delivery.reference}
+            </div>
+          )}
+        </div>
+      )}
+
+      <ul>
+        {products.map((i, idx) => (
+          <li key={idx}>
+            <span>
+              <b>{i.qty}×</b> {i.name}
+              {i.size && <em> ({i.size})</em>}
+              {i.extras.length > 0 && <small> + {i.extras.join(", ")}</small>}
+            </span>
+            <span>{soles(i.unitCents * i.qty)}</span>
+          </li>
+        ))}
+      </ul>
+
+      {delivery.proofImage && (
+        <div style={{ margin: "0.65rem 0", textAlign: "center" }}>
+          <img
+            src={delivery.proofImage}
+            alt="Captura de Yape/Plin"
+            onClick={() => onViewProof?.(delivery.proofImage!)}
+            style={{
+              maxHeight: "130px",
+              borderRadius: "8px",
+              border: "2px solid #2e7d32",
+              cursor: "pointer",
+            }}
+          />
+          <div>
+            <button
+              type="button"
+              className="link"
+              onClick={() => onViewProof?.(delivery.proofImage!)}
+              style={{ fontSize: "0.85rem" }}
+            >
+              🔍 Ampliar captura de pago
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="order-total">
+        <span>Total</span>
+        <b>{soles(order.totalCents)}</b>
+      </div>
+      {children}
+    </div>
+  );
+}
+function Calendar({ pw, onAuthError }: { pw: string; onAuthError: () => void }) {
+  const now = limaNow();
+  const [ym, setYm] = useState({ y: now.y, m: now.m });
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [day, setDay] = useState<string>(now.key);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    const { from, to } = monthRange(ym.y, ym.m);
+    adminOrders(pw, { status: "pagado", from, to })
+      .then((rows) => {
+        if (!cancel) {
+          setOrders(rows);
+          setError("");
+        }
+      })
+      .catch((err) => {
+        if (cancel) return;
+        if ((err as { status?: number }).status === 401) return onAuthError();
+        setError((err as Error).message);
+      })
+      .finally(() => !cancel && setLoading(false));
+    return () => {
+      cancel = true;
+    };
+  }, [pw, ym, onAuthError]);
+
+  const byDay = useMemo(() => {
+    const map: Record<string, Order[]> = {};
+    for (const o of orders) {
+      const k = dayKey(o.createdAt);
+      (map[k] ||= []).push(o);
+    }
+    return map;
+  }, [orders]);
+
+  const monthTotal = orders.reduce((s, o) => s + o.totalCents, 0);
+  const yapeTotal = orders.filter((o) => o.paymentMethod === "yape").reduce((s, o) => s + o.totalCents, 0);
+  const plinTotal = orders.filter((o) => o.paymentMethod === "plin").reduce((s, o) => s + o.totalCents, 0);
+  const dayOrders = byDay[day] || [];
+  const dayTotal = dayOrders.reduce((s, o) => s + o.totalCents, 0);
+
+  const firstWeekday = (new Date(Date.UTC(ym.y, ym.m - 1, 1)).getUTCDay() + 6) % 7;
+  const daysInMonth = new Date(Date.UTC(ym.y, ym.m, 0)).getUTCDate();
+  const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
+  const shift = (d: number) => {
+    const dt = new Date(Date.UTC(ym.y, ym.m - 1 + d, 1));
+    const ny = dt.getUTCFullYear();
+    const nm = dt.getUTCMonth() + 1;
+    setYm({ y: ny, m: nm });
+    setDay(`${ny}-${String(nm).padStart(2, "0")}-01`);
+  };
+
+  return (
+    <div className="admin-body">
+      <div className="month-head">
+        <div className="month-nav">
+          <button className="ghost" onClick={() => shift(-1)} aria-label="Mes anterior">
+            ‹
+          </button>
+          <h2>
+            {MONTHS[ym.m - 1]} {ym.y}
+          </h2>
+          <button className="ghost" onClick={() => shift(1)} aria-label="Mes siguiente">
+            ›
+          </button>
+        </div>
+        <div className="month-kpis">
+          <div className="stat accent">
+            <small>Ganancia del mes</small>
+            <b>{soles(monthTotal)}</b>
+          </div>
+          <div className="stat">
+            <small>Pedidos pagados</small>
+            <b>{orders.length}</b>
+          </div>
+          <div className="stat">
+            <small>Yape / Plin</small>
+            <b>
+              {soles(yapeTotal)} · {soles(plinTotal)}
+            </b>
+          </div>
+        </div>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+      {loading ? (
+        <p className="muted pad">Cargando reporte…</p>
+      ) : (
+        <div className="cal-layout">
+          <div className="cal">
+            <div className="cal-dow">
+              {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
+                <span key={d}>{d}</span>
+              ))}
+            </div>
+            <div className="cal-grid">
+              {cells.map((n, i) => {
+                if (!n) return <div key={i} className="cal-blank" />;
+                const key = `${ym.y}-${String(ym.m).padStart(2, "0")}-${String(n).padStart(2, "0")}`;
+                const list = byDay[key] || [];
+                const sum = list.reduce((s, o) => s + o.totalCents, 0);
+                const selected = key === day;
+                const isToday = key === now.key;
+                return (
+                  <button
+                    key={key}
+                    className={["cal-day", selected && "sel", isToday && "today", list.length > 0 && "has"].filter(Boolean).join(" ")}
+                    onClick={() => setDay(key)}
+                  >
+                    <span className="cal-n">{n}</span>
+                    {list.length > 0 && (
+                      <>
+                        <b>{soles(sum)}</b>
+                        <small>{list.length} ped.</small>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="day-panel">
+            <div className="day-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <small>Detalle del día</small>
+                <h3>{day}</h3>
+              </div>
+              <div className="day-sum">
+                <b>{soles(dayTotal)}</b>
+                <small>{dayOrders.length} pedidos</small>
+              </div>
+            </div>
+            {dayOrders.length === 0 ? (
+              <p className="muted">Sin pedidos cobrados este día.</p>
+            ) : (
+              <ul className="day-list">
+                {dayOrders.map((o) => {
+                  const { products } = parseOrder(o);
+                  return (
+                    <li key={o.id}>
+                      <div>
+                        <b>
+                          #{o.id} {o.customerName}
+                        </b>
+                        <small>
+                          {dateTimeOf(o.createdAt)} · {o.paymentMethod.toUpperCase()}
+                        </small>
+                        <p>{products.map((i) => `${i.qty}× ${i.name}`).join(", ")}</p>
+                      </div>
+                      <b>{soles(o.totalCents)}</b>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
