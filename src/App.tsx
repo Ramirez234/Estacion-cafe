@@ -211,7 +211,6 @@ export default function App() {
     </div>
   );
 }
-
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -285,3 +284,404 @@ function Customize({
       )}
       <div className="sheet-foot">
         <div className="stepper">
+          <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} aria-label="Menos">
+            −
+          </button>
+          <span>{qty}</span>
+          <button type="button" onClick={() => setQty((q) => Math.min(20, q + 1))} aria-label="Más">
+            +
+          </button>
+        </div>
+        <button className="primary" onClick={() => onAdd(size, extras, qty)}>
+          Agregar · {soles(unit * qty)}
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+function Checkout({
+  cart,
+  total,
+  setCart,
+  onClose,
+  onDone,
+}: {
+  cart: CartLine[];
+  total: number;
+  setCart: Dispatch<SetStateAction<CartLine[]>>;
+  onClose: () => void;
+  onDone: (o: Order) => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [reference, setReference] = useState("");
+  const [method, setMethod] = useState<"yape" | "plin">("yape");
+  const [step, setStep] = useState<"form" | "pay">("form");
+  const [proofImage, setProofImage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const change = (key: string, d: number) =>
+    setCart((c) => c.map((l) => (l.key === key ? { ...l, qty: l.qty + d } : l)).filter((l) => l.qty > 0));
+
+  const submitForm = (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return setError("Escribe tu nombre para saber a quién entregar.");
+    if (!phone.trim() || phone.replace(/\D/g, "").length < 6) {
+      return setError("Escribe tu número de celular para el delivery.");
+    }
+    if (!address.trim()) return setError("Escribe tu dirección exacta.");
+    setError("");
+    setStep("pay");
+  };
+
+  const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError("");
+    try {
+      const compressed = await compressProof(file);
+      setProofImage(compressed);
+    } catch {
+      setError("No se pudo cargar la captura. Intenta con otra imagen.");
+    }
+  };
+
+  const sendOrder = async () => {
+    if (!proofImage) {
+      return setError("Es obligatorio subir la captura de tu pago antes de confirmar.");
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const order = await createOrder({
+        customerName: name.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        reference: reference.trim(),
+        proofImage,
+        paymentMethod: method,
+        items: cart,
+      });
+      onDone(order);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (step === "pay") {
+    return (
+      <YapePay
+        method={method}
+        customerName={name.trim()}
+        total={total}
+        proofImage={proofImage}
+        onFileChange={handleFile}
+        busy={busy}
+        error={error}
+        onConfirm={sendOrder}
+        onBack={() => {
+          setStep("form");
+          setError("");
+        }}
+        onClose={onClose}
+      />
+    );
+  }
+
+  return (
+    <Sheet title="Tu pedido" onClose={onClose}>
+      <ul className="cart-list">
+        {cart.map((l) => {
+          const item = ITEMS_BY_ID[l.id];
+          const extraNames = EXTRAS.filter((e) => l.extras.includes(e.id)).map((e) => e.name);
+          const meta = [l.size, ...extraNames].filter(Boolean).join(" · ");
+          return (
+            <li key={l.key}>
+              <div>
+                <b>{item.name}</b>
+                {meta && <small>{meta}</small>}
+              </div>
+              <div className="line-end">
+                <div className="stepper sm">
+                  <button type="button" onClick={() => change(l.key, -1)} aria-label="Quitar uno">
+                    −
+                  </button>
+                  <span>{l.qty}</span>
+                  <button type="button" onClick={() => change(l.key, 1)} aria-label="Agregar uno">
+                    +
+                  </button>
+                </div>
+                <span className="line-price">{soles(lineUnit(l) * l.qty)}</span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <form onSubmit={submitForm}>
+        <label className="field">
+          <span>Tu nombre</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ej. Camila"
+            maxLength={80}
+            required
+          />
+        </label>
+
+        <label className="field">
+          <span>Celular de contacto (Delivery)</span>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="Ej. 999 888 777"
+            maxLength={20}
+            required
+          />
+        </label>
+
+        <label className="field">
+          <span>Dirección exacta</span>
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Ej. Av. Larco 123, Urb. California"
+            maxLength={140}
+            required
+          />
+        </label>
+
+        <label className="field">
+          <span>Referencia (opcional)</span>
+          <input
+            type="text"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="Ej. Frente al parque, casa blanca"
+            maxLength={120}
+          />
+        </label>
+
+        <div className="pay">
+          <span>¿Cómo pagas?</span>
+          <div className="pay-opts">
+            <button type="button" className={method === "yape" ? "pay-opt on" : "pay-opt"} onClick={() => setMethod("yape")}>
+              Yape
+            </button>
+            <button type="button" className={method === "plin" ? "pay-opt on" : "pay-opt"} onClick={() => setMethod("plin")}>
+              Plin
+            </button>
+          </div>
+          <small className="pay-hint">
+            En el siguiente paso verás el QR y número para transferir y subir tu captura.
+          </small>
+        </div>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="total-row">
+          <span>Total</span>
+          <b>{soles(total)}</b>
+        </div>
+
+        <button className="primary wide" disabled={busy}>
+          Continuar al pago · {soles(total)}
+        </button>
+      </form>
+    </Sheet>
+  );
+}
+function YapePay({
+  method,
+  customerName,
+  total,
+  proofImage,
+  onFileChange,
+  busy,
+  error,
+  onConfirm,
+  onBack,
+  onClose,
+}: {
+  method: "yape" | "plin";
+  customerName: string;
+  total: number;
+  proofImage: string;
+  onFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  busy: boolean;
+  error: string;
+  onConfirm: () => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyPhone = async () => {
+    try {
+      await navigator.clipboard.writeText(YAPE_PHONE_DIGITS);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <Sheet title={`Pagar con ${method === "plin" ? "Plin" : "Yape"}`} onClose={onClose}>
+      <div className="yape-pay" style={{ paddingBottom: "2.5rem" }}>
+        <p className="yape-lead">
+          Hola <b>{customerName}</b>, escanea el QR desde <b>Yape o Plin</b> o transfiere al número por el monto exacto:
+        </p>
+
+        <div className="yape-amount">
+          <span>Monto exacto</span>
+          <b>{soles(total)}</b>
+        </div>
+
+        {PAYMENT.yapeQr && (
+          <div className="qr">
+            <img src={PAYMENT.yapeQr} alt="Código QR de Yape / Plin Estación Café" width={220} height={220} />
+          </div>
+        )}
+
+        <div className="yape-phone-box">
+          <div>
+            <small>Número para {method === "plin" ? "Plin / Yape" : "Yape / Plin"}</small>
+            <b>{PAYMENT.phone}</b>
+            <small>Titular: Fani Amerita Ruiz Medina (Estación Café)</small>
+          </div>
+          <button type="button" className="copy" onClick={copyPhone}>
+            {copied ? "✓ Copiado" : "Copiar número"}
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: "1rem",
+            padding: "0.9rem",
+            borderRadius: "12px",
+            border: proofImage ? "2px solid #2e7d32" : "2px dashed #8d6e63",
+            background: proofImage ? "#f1f8e9" : "#faf6f2",
+            textAlign: "center",
+          }}
+        >
+          <p style={{ margin: "0 0 0.5rem", fontWeight: 700, fontSize: "0.95rem" }}>
+            {proofImage ? "✓ Captura de pago adjuntada" : "📸 Paso obligatorio: Sube tu captura de pago"}
+          </p>
+          <label
+            style={{
+              display: "inline-block",
+              padding: "0.55rem 1rem",
+              borderRadius: "8px",
+              background: "#3e2723",
+              color: "#fff",
+              fontWeight: 600,
+              cursor: "pointer",
+              fontSize: "0.9rem",
+            }}
+          >
+            {proofImage ? "Cambiar captura" : "Seleccionar captura de Yape / Plin"}
+            <input type="file" accept="image/*" onChange={onFileChange} style={{ display: "none" }} />
+          </label>
+          {proofImage && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <img
+                src={proofImage}
+                alt="Vista previa de captura"
+                style={{ maxHeight: "160px", borderRadius: "8px", border: "1px solid #ccc" }}
+              />
+            </div>
+          )}
+        </div>
+
+        {error && <p className="error">{error}</p>}
+
+        <button
+          type="button"
+          className="primary wide"
+          onClick={onConfirm}
+          disabled={busy || !proofImage}
+          style={{ opacity: busy || !proofImage ? 0.55 : 1, marginTop: "0.75rem" }}
+        >
+          {busy ? "Enviando pedido…" : proofImage ? "Ya hice el pago · Confirmar pedido" : "Sube tu captura para continuar"}
+        </button>
+
+        <button type="button" className="link" onClick={onBack} disabled={busy}>
+          ← Volver a mi pedido
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+function Confirmation({ order, onClose }: { order: Order; onClose: () => void }) {
+  const deliveryLine = order.items.find((i) => i.id === "__delivery__");
+  const productLines = order.items.filter((i) => i.id !== "__delivery__");
+  let delivery: { phone?: string; address?: string; reference?: string } = {};
+  if (deliveryLine) {
+    try {
+      delivery = JSON.parse(deliveryLine.name);
+    } catch {
+      delivery = {};
+    }
+  }
+
+  return (
+    <Sheet title="¡Pedido enviado!" onClose={onClose}>
+      <div className="confirm">
+        <span className="badge">Pedido #{order.id}</span>
+        <p>
+          Gracias, <b>{order.customerName}</b>. Recibimos tu pedido y tu comprobante de pago ({order.paymentMethod.toUpperCase()}) a las{" "}
+          {timeOf(order.createdAt)}. Ya lo estamos preparando.
+        </p>
+
+        {delivery.address && (
+          <div style={{ background: "#faf6f2", padding: "0.75rem", borderRadius: "10px", margin: "0.75rem 0", fontSize: "0.9rem" }}>
+            <div>
+              <b>📍 Delivery:</b> {delivery.address}
+            </div>
+            {delivery.reference && (
+              <div>
+                <b>Ref:</b> {delivery.reference}
+              </div>
+            )}
+            {delivery.phone && (
+              <div>
+                <b>📱 Celular:</b> {delivery.phone}
+              </div>
+            )}
+          </div>
+        )}
+
+        <ul className="mini">
+          {productLines.map((i, idx) => (
+            <li key={idx}>
+              <span>
+                {i.qty}× {i.name} {i.size && `(${i.size})`}
+              </span>
+              <b>{soles(i.unitCents * i.qty)}</b>
+            </li>
+          ))}
+        </ul>
+
+        <div className="total-row">
+          <span>Total</span>
+          <b>{soles(order.totalCents)}</b>
+        </div>
+
+        <button className="primary wide" onClick={onClose}>
+          Listo
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
