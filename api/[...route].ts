@@ -1,5 +1,5 @@
 import { handle } from "hono/vercel";
-import app from "../netlify/server/index";
+import app from "../netlify/server/index.js";
 
 export const GET = handle(app);
 export const POST = handle(app);
